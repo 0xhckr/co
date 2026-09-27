@@ -1,6 +1,7 @@
 use super::MachineIdentity;
 use crate::client;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::sync::{
     Arc, Mutex,
@@ -24,6 +25,42 @@ pub(super) struct LiveStep {
 }
 
 pub(super) type Logs = Arc<Mutex<Vec<LiveStep>>>;
+
+fn hash(steps: &[LiveStep]) -> String {
+    let tuples: Vec<_> = steps
+        .iter()
+        .map(|s| (&s.name, s.exit_code, &s.output))
+        .collect();
+    digest(tuples)
+}
+
+pub(super) fn digest(tuples: impl Serialize) -> String {
+    format!("{:x}", Sha256::digest(serde_json::to_vec(&tuples).unwrap()))
+}
+
+fn update(previous: &[LiveStep], next: &[LiveStep], repair: Option<&str>) -> serde_json::Value {
+    let steps: Vec<_> = next
+        .iter()
+        .enumerate()
+        .filter_map(|(index, step)| {
+            let old = if repair.is_some() {
+                None
+            } else {
+                previous.get(index)
+            };
+            if old == Some(step) {
+                return None;
+            }
+            let offset = old.map_or(0, |s| s.output.len());
+            Some(
+                serde_json::json!({ "index": index, "offset": offset, "name": step.name,
+            "exitCode": step.exit_code, "output": &step.output[offset..] }),
+            )
+        })
+        .collect();
+    serde_json::json!({ "baseHash": repair.map(str::to_owned).unwrap_or_else(|| hash(previous)),
+        "hash": hash(next), "reset": repair.is_some(), "steps": steps })
+}
 
 pub(super) fn begin(logs: &Logs, name: &str) {
     logs.lock().unwrap().push(LiveStep {
@@ -116,27 +153,45 @@ pub(super) fn upload(
     thread::spawn(move || {
         let mut previous = Vec::new();
         let mut warned = false;
+        let mut repair: Option<String> = None;
         while !stop.load(Ordering::Relaxed) {
             let snapshot = logs.lock().unwrap().clone();
-            if !snapshot.is_empty() && snapshot != previous {
+            if !snapshot.is_empty() && (snapshot != previous || repair.is_some()) {
+                let update = update(&previous, &snapshot, repair.as_deref());
                 let response = client().and_then(|client| {
                     client
                         .post(format!(
-                            "{}/machine-enrollment/jobs/{id}/logs",
+                            "{}/machine-enrollment/jobs/{id}/log-deltas",
                             machine.api_url
                         ))
                         .bearer_auth(&machine.credential)
                         .timeout(Duration::from_secs(5))
-                        .json(&serde_json::json!({ "assignmentToken": token, "steps": snapshot }))
+                        .json(&serde_json::json!({ "assignmentToken": token, "update": update }))
                         .send()
                         .map_err(|_| "live log upload failed".to_owned())
                 });
                 match response {
-                    Ok(response) if response.status().is_success() => {
-                        previous = snapshot;
-                        warned = false;
+                    Ok(response) if response.status().as_u16() == 200 => {
+                        let ack = response.json::<serde_json::Value>().unwrap_or_default();
+                        if ack["type"] == "ack" && ack["hash"] == update["hash"] {
+                            previous = snapshot;
+                            repair = None;
+                            warned = false;
+                        }
                     }
-                    Ok(response) if matches!(response.status().as_u16(), 401 | 404 | 409) => break,
+                    Ok(response) if response.status().as_u16() == 409 => {
+                        let result = response.json::<serde_json::Value>().unwrap_or_default();
+                        if result["type"] == "resync" {
+                            if let Some(value) = result["hash"].as_str().filter(|v| {
+                                v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit())
+                            }) {
+                                repair = Some(value.to_owned());
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    Ok(response) if matches!(response.status().as_u16(), 401 | 404) => break,
                     _ => {
                         if !warned {
                             eprintln!("Live log upload interrupted; retrying while the job runs.");
@@ -145,7 +200,7 @@ pub(super) fn upload(
                     }
                 }
             }
-            thread::park_timeout(Duration::from_secs(2));
+            thread::park_timeout(Duration::from_millis(500));
         }
     })
 }
@@ -153,6 +208,30 @@ pub(super) fn upload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hashes_canonical_tuples_and_sends_only_utf8_suffix() {
+        assert_eq!(
+            hash(&[]),
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        );
+        let logs = Logs::default();
+        begin(&logs, "Test");
+        append(&logs, 0, "🦀\n");
+        let first = logs.lock().unwrap().clone();
+        assert_eq!(
+            hash(&first),
+            "03032299553b8e5ce964b2b4ecbe8c3cca49ecab3919e391452793a7832c7337"
+        );
+        append(&logs, 0, "next\n");
+        let next = logs.lock().unwrap().clone();
+        let delta = update(&first, &next, None);
+        assert_eq!(delta["steps"][0]["offset"], 5);
+        assert_eq!(delta["steps"][0]["output"], "next\n");
+        let reset = update(&first, &next, Some(&hash(&[])));
+        assert_eq!(reset["steps"][0]["offset"], 0);
+        assert_eq!(reset["steps"][0]["output"], "🦀\nnext\n");
+        assert_eq!(reset["hash"], delta["hash"]);
+    }
     #[test]
     fn output_is_bounded_and_marks_truncation() {
         let logs = Logs::default();

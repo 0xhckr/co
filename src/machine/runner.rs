@@ -74,11 +74,17 @@ pub(super) fn poll(machine: &MachineIdentity) -> Result<(), String> {
     let job: NextJob = decode(response)?;
     eprintln!("Running job {} on machine {}", job.job.id, machine.id);
     let (results, success) = execute(machine, &job.job);
+    let hash = live_logs::digest(
+        results
+            .iter()
+            .map(|s| (&s.name, s.exit_code, &s.output))
+            .collect::<Vec<_>>(),
+    );
     let response = post(
         machine,
         &format!("/machine-enrollment/jobs/{}/finish", job.job.id),
         serde_json::json!({ "assignmentToken": job.job.assignment_token,
-            "result": if success { "success" } else { "failure" }, "steps": results }),
+            "result": if success { "success" } else { "failure" }, "steps": results, "hash": hash }),
     )?;
     if response.status() == reqwest::StatusCode::CONFLICT {
         return Err("assignment expired or cancelled; result discarded".into());
@@ -634,13 +640,15 @@ mod tests {
             drop(stream);
             let mut saw_live = false;
             let mut retry = true;
+            let mut repair_requested = false;
+            let mut repaired = false;
             loop {
                 let (mut stream, _) = listener.accept().unwrap();
                 let (path, body) = read_request(&mut stream);
-                if path.ends_with("/logs") {
+                if path.ends_with("/log-deltas") {
                     assert_eq!(body["assignmentToken"], "test-token");
-                    if body["steps"][0]["output"] == "from exact commit\n" {
-                        assert!(body["steps"][0]["exitCode"].is_null());
+                    if body["update"]["steps"][0]["output"] == "from exact commit\n" {
+                        assert!(body["update"]["steps"][0]["exitCode"].is_null());
                         saw_live = !retry;
                     }
                     if retry {
@@ -648,6 +656,22 @@ mod tests {
                         write!(stream, "HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
                         continue;
                     }
+                    if !repair_requested {
+                        repair_requested = true;
+                        let reply =
+                            serde_json::json!({"type":"resync","hash":"a".repeat(64)}).to_string();
+                        write!(stream,"HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",reply.len()).unwrap();
+                        continue;
+                    }
+                    if !repaired {
+                        assert_eq!(body["update"]["reset"], true);
+                        assert_eq!(body["update"]["baseHash"], "a".repeat(64));
+                        assert_eq!(body["update"]["steps"][0]["offset"], 0);
+                        repaired = true;
+                    }
+                    let reply =
+                        serde_json::json!({"type":"ack","hash":body["update"]["hash"]}).to_string();
+                    write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",reply.len()).unwrap();
                 } else {
                     assert!(path.ends_with("/finish"));
                     assert!(
@@ -656,6 +680,11 @@ mod tests {
                     );
                     assert_eq!(body["result"], "success", "{body}");
                     assert_eq!(body["steps"][0]["output"], "from exact commit\ndone\n");
+                    assert!(repaired);
+                    assert_eq!(
+                        body["hash"],
+                        live_logs::digest(vec![("Read", 0, "from exact commit\ndone\n")])
+                    );
                     write!(
                         stream,
                         "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -663,11 +692,6 @@ mod tests {
                     .unwrap();
                     break;
                 }
-                write!(
-                    stream,
-                    "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                )
-                .unwrap();
             }
         });
         let machine = MachineIdentity {

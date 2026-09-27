@@ -4,6 +4,7 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+- Send only new workflow output and verify cumulative log integrity, automatically repairing missing or mismatched logs.
 - Show workflow output while steps run, recover log updates after temporary disconnects, and retain more output with explicit truncation notices.
 
 ## [0.6.0] - 2026-09-27
