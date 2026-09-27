@@ -1278,8 +1278,7 @@ fn validate_upstream_name(name: &str) -> Result<(), String> {
 
 fn clone_repo(command: RepoCommand) -> Result<(), String> {
     let (_, name) = repo_spec(&command.spec)?;
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("unable to locate the co executable: {error}"))?;
+    let executable = credential_helper_executable()?;
     let helper = credential_helper(&executable)?;
     let url = git_url(&command.spec);
     let clone_args = clone_command_args(
@@ -1302,8 +1301,7 @@ fn clone_repo(command: RepoCommand) -> Result<(), String> {
 }
 
 fn link_repo(command: RepoCommand) -> Result<(), String> {
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("unable to locate the co executable: {error}"))?;
+    let executable = credential_helper_executable()?;
     let helper = credential_helper(&executable)?;
     let root = git_repo_root()?;
     run_git(
@@ -1326,6 +1324,32 @@ fn link_repo(command: RepoCommand) -> Result<(), String> {
 
 fn git_url(spec: &str) -> String {
     format!("https://{GIT_HOST}/{spec}.git")
+}
+
+fn credential_helper_executable() -> Result<PathBuf, String> {
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("unable to locate the co executable: {error}"))?;
+    let resolved = executable.canonicalize().unwrap_or(executable.clone());
+    let Some(invoked) = std::env::args_os().next().map(PathBuf::from) else {
+        return Ok(executable);
+    };
+    let candidates = if invoked.components().count() > 1 {
+        vec![invoked]
+    } else {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|directory| directory.join(&invoked))
+            .collect()
+    };
+    // Keep the installation entry point (Nix profile, Homebrew symlink, etc.),
+    // not current_exe's versioned target, which an upgrade can remove. Verify
+    // argv[0] against the running binary before persisting it as a helper.
+    for candidate in candidates {
+        if candidate.canonicalize().ok().as_ref() == Some(&resolved) {
+            return std::path::absolute(candidate)
+                .map_err(|error| format!("unable to locate the co executable: {error}"));
+        }
+    }
+    Ok(executable)
 }
 
 fn credential_helper(executable: &Path) -> Result<String, String> {

@@ -15,6 +15,7 @@
           version = "0.5.0";
           src = self;
           cargoLock.lockFile = ./Cargo.lock;
+          nativeCheckInputs = [ pkgs.git ];
           meta = {
             description = "Human-facing CLI for co.codes";
             homepage = "https://co.codes";
