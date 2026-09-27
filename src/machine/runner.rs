@@ -1,7 +1,9 @@
 use super::MachineIdentity;
+use super::live_logs::{self, Logs};
 use crate::{client, decode, network_error};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -183,32 +185,17 @@ fn wait_bounded(mut child: std::process::Child, timeout: Duration) -> Result<boo
     }
 }
 
-fn drain<R: Read + Send + 'static>(mut stream: R) -> thread::JoinHandle<String> {
-    thread::spawn(move || {
-        let mut kept = Vec::with_capacity(2048);
-        let mut buffer = [0u8; 8192];
-        while let Ok(count) = stream.read(&mut buffer) {
-            if count == 0 {
-                break;
-            }
-            kept.extend_from_slice(&buffer[..count.min(2048 - kept.len())]);
-        }
-        String::from_utf8_lossy(&kept)
-            .chars()
-            .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
-            .collect()
-    })
-}
-
 fn execute_step(
     image: &str,
     directory: &Path,
     step: &Step,
     job: &Assignment,
-    index: usize,
     cancelled: &AtomicBool,
     deadline: Instant,
+    logs: &Logs,
 ) -> StepResult {
+    let index = logs.lock().unwrap().len();
+    live_logs::begin(logs, &step.name);
     let container = format!("co-{}-{index}", job.id);
     let mut command = Command::new("podman");
     command.args([
@@ -240,15 +227,26 @@ fn execute_step(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
+            live_logs::append(logs, index, &format!("Unable to start container: {error}"));
+            let mut live = logs.lock().unwrap();
+            live[index].exit_code = Some(1);
             return StepResult {
                 name: step.name.clone(),
                 exit_code: 1,
-                output: format!("Unable to start container: {error}"),
+                output: live[index].output.clone(),
             };
         }
     };
-    let stdout = drain(child.stdout.take().expect("piped stdout"));
-    let stderr = drain(child.stderr.take().expect("piped stderr"));
+    let stdout = live_logs::drain(
+        child.stdout.take().expect("piped stdout"),
+        logs.clone(),
+        index,
+    );
+    let stderr = live_logs::drain(
+        child.stderr.take().expect("piped stderr"),
+        logs.clone(),
+        index,
+    );
     let start = Instant::now();
     let exit_code = loop {
         match child.try_wait() {
@@ -273,20 +271,11 @@ fn execute_step(
             Ok(None) => thread::sleep(Duration::from_millis(200)),
         }
     };
-    let mut output = stdout.join().unwrap_or_default();
-    let errors = stderr.join().unwrap_or_default();
-    let cut = |text: &str, bytes: usize| {
-        if text.len() <= bytes {
-            return text.len();
-        }
-        text.char_indices()
-            .map(|(index, _)| index)
-            .take_while(|index| *index <= bytes)
-            .last()
-            .unwrap_or(0)
-    };
-    output.truncate(cut(&output, 512));
-    output.push_str(&errors[..cut(&errors, 1024 - output.len())]);
+    let _ = stdout.join();
+    let _ = stderr.join();
+    let mut live = logs.lock().unwrap();
+    live[index].exit_code = Some(exit_code);
+    let output = live[index].output.clone();
     StepResult {
         name: step.name.clone(),
         exit_code,
@@ -295,6 +284,15 @@ fn execute_step(
 }
 
 fn execute(machine: &MachineIdentity, job: &Assignment) -> (Vec<StepResult>, bool) {
+    let logs = Logs::default();
+    let upload_stop = Arc::new(AtomicBool::new(false));
+    let uploader = live_logs::upload(
+        machine.clone(),
+        job.id.clone(),
+        job.assignment_token.clone(),
+        logs.clone(),
+        upload_stop.clone(),
+    );
     let deadline = Instant::now() + Duration::from_secs(1800);
     let cancelled = Arc::new(AtomicBool::new(false));
     let renew_stop = Arc::new(AtomicBool::new(false));
@@ -330,7 +328,7 @@ fn execute(machine: &MachineIdentity, job: &Assignment) -> (Vec<StepResult>, boo
             return Err("CO_MACHINE_IMAGE must be pinned by digest".into());
         }
         let mut steps = Vec::new();
-        for (index, step) in job.steps.iter().enumerate() {
+        for step in &job.steps {
             if cancelled.load(Ordering::Relaxed) || Instant::now() >= deadline {
                 break;
             }
@@ -339,9 +337,9 @@ fn execute(machine: &MachineIdentity, job: &Assignment) -> (Vec<StepResult>, boo
                 &root.path().join("source"),
                 step,
                 job,
-                index,
                 &cancelled,
                 deadline,
+                &logs,
             );
             let failed = result.exit_code != 0;
             steps.push(result);
@@ -351,6 +349,9 @@ fn execute(machine: &MachineIdentity, job: &Assignment) -> (Vec<StepResult>, boo
         }
         Ok::<_, String>(steps)
     })();
+    upload_stop.store(true, Ordering::Relaxed);
+    uploader.thread().unpark();
+    let _ = uploader.join();
     renew_stop.store(true, Ordering::Relaxed);
     // The renewal thread is deliberately detached: waiting for its sleep would
     // delay completion. Its stop flag prevents further requests after wake-up.
@@ -443,9 +444,9 @@ mod tests {
             root.path(),
             &step,
             &job,
-            0,
             &AtomicBool::new(false),
             Instant::now() + STEP_TIMEOUT,
+            &Logs::default(),
         );
         assert_eq!(result.exit_code, 0, "{}", result.output);
         assert_eq!(
@@ -627,23 +628,47 @@ mod tests {
             assert_eq!(path, "/machine-enrollment/next-job");
             let body = serde_json::json!({"job": {"id": "00000000-0000-4000-8000-000000000003",
                 "assignmentToken": "test-token", "checkoutUrl": format!("file://{}", source.display()),
-                "commitOid": oid, "steps": [{"name": "Read", "run": "cat payload.txt"}],
+                "commitOid": oid, "steps": [{"name": "Read", "run": "cat payload.txt; sleep 5; printf 'done\\n'"}],
                 "vcpus": 1, "ramMiB": 128 }}).to_string();
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             drop(stream);
-            let (mut stream, _) = listener.accept().unwrap();
-            let (path, body) = read_request(&mut stream);
-            assert_eq!(
-                path,
-                "/machine-enrollment/jobs/00000000-0000-4000-8000-000000000003/finish"
-            );
-            assert_eq!(body["result"], "success", "{body}");
-            assert_eq!(body["steps"][0]["output"], "from exact commit\n");
-            write!(
-                stream,
-                "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            )
-            .unwrap();
+            let mut saw_live = false;
+            let mut retry = true;
+            loop {
+                let (mut stream, _) = listener.accept().unwrap();
+                let (path, body) = read_request(&mut stream);
+                if path.ends_with("/logs") {
+                    assert_eq!(body["assignmentToken"], "test-token");
+                    if body["steps"][0]["output"] == "from exact commit\n" {
+                        assert!(body["steps"][0]["exitCode"].is_null());
+                        saw_live = !retry;
+                    }
+                    if retry {
+                        retry = false;
+                        write!(stream, "HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                        continue;
+                    }
+                } else {
+                    assert!(path.ends_with("/finish"));
+                    assert!(
+                        saw_live,
+                        "Output must arrive while the step is still running"
+                    );
+                    assert_eq!(body["result"], "success", "{body}");
+                    assert_eq!(body["steps"][0]["output"], "from exact commit\ndone\n");
+                    write!(
+                        stream,
+                        "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                    break;
+                }
+                write!(
+                    stream,
+                    "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+            }
         });
         let machine = MachineIdentity {
             id: "test".into(),

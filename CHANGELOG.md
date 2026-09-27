@@ -4,6 +4,8 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+- Show workflow output while steps run, recover log updates after temporary disconnects, and retain more output with explicit truncation notices.
+
 ## [0.6.0] - 2026-09-27
 
 - Add explicit agent Git credentials through `CO_AGENT_ID`, scoped to the approved repository and refusing human-credential fallback.

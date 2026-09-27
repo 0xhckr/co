@@ -5,6 +5,7 @@ use std::io::{self, BufRead, IsTerminal};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+mod live_logs;
 mod runner;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
