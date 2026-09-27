@@ -4,8 +4,15 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-27
+
 - Add explicit agent Git credentials through `CO_AGENT_ID`, scoped to the approved repository and refusing human-credential fallback.
 - Add `co agent attest` to record authenticated participation in explicitly selected commits after pushing.
+- Add machine enrollment with a setup key or an authorized owner session, saved machine identities, and reconnecting heartbeats.
+- Add `co machine run` to execute assigned workflow jobs at their exact commit, with isolated steps, time limits, cancellation, and bounded logs.
+- Add `co workflow check` to validate local workflow files and report file and line diagnostics.
+- Keep newly configured clone and link credential helpers working across CLI upgrades that replace installation symlinks.
+- Keep machine checkout URLs matched to the configured API environment.
 
 ## [0.5.0] - 2026-09-13
 
@@ -39,7 +46,8 @@ All notable changes are documented here. This project follows semantic versionin
 - Validate repository access in `clone` while smart HTTP remains unavailable.
 - Add Linux and macOS release packaging, Nix support, and the global installer.
 
-[Unreleased]: https://github.com/codotcodes/co/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/codotcodes/co/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/codotcodes/co/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/codotcodes/co/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/codotcodes/co/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/codotcodes/co/compare/v0.2.0...v0.3.0
