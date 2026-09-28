@@ -4,6 +4,7 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+- Fix machine enrollment on macOS when system utilities are absent from `PATH`.
 - Send only new workflow output and verify cumulative log integrity, automatically repairing missing or mismatched logs.
 - Show workflow output while steps run, recover log updates after temporary disconnects, and retain more output with explicit truncation notices.
 

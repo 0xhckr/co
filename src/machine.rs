@@ -1,8 +1,6 @@
 use super::{api_url, client, decode, load_config, mutate_config, network_error};
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, IsTerminal};
-#[cfg(target_os = "macos")]
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
 mod live_logs;
@@ -39,18 +37,28 @@ fn ram_mib() -> Result<u64, String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = Command::new("sysctl")
-            .args(["-n", "hw.memsize"])
-            .output()
-            .map_err(|error| format!("unable to detect RAM: {error}"))?;
-        if !output.status.success() {
-            return Err("unable to detect RAM with sysctl".into());
+        let mut bytes = 0_u64;
+        let mut size = std::mem::size_of_val(&bytes);
+        // SAFETY: hw.memsize returns a u64. The writable buffer and its length
+        // are valid for this call; a null newp with length zero makes it read-only.
+        let result = unsafe {
+            libc::sysctlbyname(
+                c"hw.memsize".as_ptr(),
+                std::ptr::from_mut(&mut bytes).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if result != 0 {
+            return Err(format!(
+                "unable to detect RAM: {}",
+                io::Error::last_os_error()
+            ));
         }
-        let bytes = String::from_utf8(output.stdout)
-            .map_err(|error| format!("invalid RAM output: {error}"))?
-            .trim()
-            .parse::<u64>()
-            .map_err(|error| format!("invalid total RAM: {error}"))?;
+        if size != std::mem::size_of_val(&bytes) || bytes == 0 {
+            return Err("invalid total RAM returned by sysctl".into());
+        }
         Ok(bytes.div_ceil(1024 * 1024))
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]

@@ -33,6 +33,8 @@ impl Fixture {
             .env("CO_CONFIG_DIR", &self.0)
             .env("CO_API_URL", api)
             .env("NO_PROXY", "127.0.0.1")
+            // Enrollment and heartbeats must also work in a hermetic build environment.
+            .env("PATH", "")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

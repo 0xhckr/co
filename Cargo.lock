@@ -81,6 +81,7 @@ dependencies = [
  "base64",
  "fs2",
  "httpdate",
+ "libc",
  "reqwest",
  "rpassword",
  "serde",
