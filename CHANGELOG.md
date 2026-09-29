@@ -4,6 +4,8 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-28
+
 - Fix machine enrollment on macOS when system utilities are absent from `PATH`.
 - Send only new workflow output and verify cumulative log integrity, automatically repairing missing or mismatched logs.
 - Show workflow output while steps run, recover log updates after temporary disconnects, and retain more output with explicit truncation notices.
@@ -50,7 +52,8 @@ All notable changes are documented here. This project follows semantic versionin
 - Validate repository access in `clone` while smart HTTP remains unavailable.
 - Add Linux and macOS release packaging, Nix support, and the global installer.
 
-[Unreleased]: https://github.com/codotcodes/co/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/codotcodes/co/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/codotcodes/co/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/codotcodes/co/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/codotcodes/co/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/codotcodes/co/compare/v0.3.0...v0.4.0
