@@ -72,7 +72,7 @@ jobs:
       - run: brew uninstall codotcodes/co/co
 
   packages:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -90,7 +90,7 @@ jobs:
           sh scripts/test-packages.sh dist "$version"
 
   nix:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
