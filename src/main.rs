@@ -59,6 +59,8 @@ struct PendingAgentRequest {
     #[serde(default)]
     operations: Vec<String>,
     requested_expires_unix: u64,
+    #[serde(default)]
+    approval_expires_unix: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -170,6 +172,8 @@ struct CreatedGrantRequest {
     approval_url: String,
     #[serde(rename = "expiresAtUnix")]
     expires_at_unix: Option<u64>,
+    #[serde(rename = "approvalExpiresAtUnix")]
+    approval_expires_at_unix: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -312,7 +316,9 @@ fn help() {
     println!("Access request options:");
     println!("      --agent <id-or-name>        use or register this agent");
     println!("      --push                      request pull and push (default: pull)");
-    println!("      --ttl <seconds>             grant lifetime, 300-86400 (default: 3600)");
+    println!(
+        "      --ttl <seconds>             grant lifetime, 300-2592000 (30 days; default: 3600)"
+    );
     println!("      --reason <text>             explain the task to the approver");
     println!();
     println!("Configuration: ~/.config/co/config.json (or $XDG_CONFIG_HOME/co/config.json).");
@@ -615,9 +621,9 @@ fn parse_access_request(args: &[String]) -> Result<AccessRequestCommand, String>
                     .get(index)
                     .ok_or_else(|| format!("--ttl requires a value\n{usage}"))?
                     .parse()
-                    .map_err(|_| format!("--ttl must be a number\n{usage}"))?;
-                if !(300..=86_400).contains(&ttl_seconds) {
-                    return Err("--ttl must be between 300 and 86400 seconds".into());
+                    .map_err(|_| format!("--ttl must be an integer\n{usage}"))?;
+                if !(300..=2_592_000).contains(&ttl_seconds) {
+                    return Err("--ttl must be between 300 and 2592000 seconds (30 days)".into());
                 }
             }
             "--reason" => {
@@ -750,6 +756,7 @@ fn request_agent_access(command: AccessRequestCommand, mut config: Config) -> Re
         requested_expires_unix: created
             .expires_at_unix
             .unwrap_or(unix_now()?.saturating_add(command.ttl_seconds)),
+        approval_expires_unix: created.approval_expires_at_unix,
     };
     mutate_config(|latest| {
         latest
@@ -890,6 +897,14 @@ fn wait_agent_access(request_id: Option<&str>) -> Result<(), String> {
         let polled: PolledGrantRequest = decode(response)?;
         match polled.status.as_str() {
             "pending" => {
+                let now = unix_now()?;
+                if pending
+                    .approval_expires_unix
+                    .is_some_and(|deadline| now >= deadline)
+                {
+                    remove_pending_agent_request(&pending.id)?;
+                    return Err("access request expired; run `co access request` again".into());
+                }
                 thread::sleep(Duration::from_secs(backoff));
                 backoff = (backoff * 2).min(15);
             }
@@ -1890,5 +1905,33 @@ mod tests {
         );
         assert!(parse_access_request(&["--ttl".into(), "2".into(), "hackr/www".into()]).is_err());
         assert!(parse_access_request(&["--wat".into(), "hackr/www".into()]).is_err());
+    }
+
+    #[test]
+    fn accepts_month_access_and_preserves_shorter_ttls() {
+        for ttl in [300, 3600, 86_400, 2_592_000] {
+            let command =
+                parse_access_request(&["--ttl".into(), ttl.to_string(), "hackr/www".into()])
+                    .unwrap();
+            assert_eq!(command.ttl_seconds, ttl);
+        }
+        assert_eq!(
+            parse_access_request(&["hackr/www".into()])
+                .unwrap()
+                .ttl_seconds,
+            3600
+        );
+        for ttl in [
+            "299",
+            "2592001",
+            "3600.5",
+            "-1",
+            "0",
+            "18446744073709551616",
+        ] {
+            assert!(
+                parse_access_request(&["--ttl".into(), ttl.into(), "hackr/www".into()]).is_err()
+            );
+        }
     }
 }

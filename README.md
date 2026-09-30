@@ -59,17 +59,19 @@ co repo create my-org/my-project --public --json
 
 To connect existing local code after creation, run `co link OWNER/NAME`. To get a new checkout, run `co clone OWNER/NAME`.
 
-`co access request --agent NAME OWNER/REPO` registers the named agent when needed, creates a one-time request capability through the existing machine session, and opens the repository access request in a browser. The command waits while a human owner or maintainer reviews the exact repository, operations, reason, and expiry. Approval requires a passkey; opening the browser grants nothing. Add `--push` to request pull and push instead of pull only, `--ttl SECONDS` for a 5-minute to 24-hour lifetime, and `--reason TEXT` to explain the task.
+`co access request --agent NAME OWNER/REPO` registers the named agent when needed, creates a one-time request capability through the existing machine session, and opens the repository access request in a browser. The command waits while a human owner or maintainer reviews the exact repository, operations, reason, requested duration, and expiry. Approval requires a passkey, authenticator code, or verified-email code; opening the browser grants nothing. Add `--push` to request pull and push instead of pull only, `--ttl SECONDS` for a 5-minute to 30-day lifetime (300 through 2592000 seconds, default 3600), and `--reason TEXT` to explain the task.
 
-Pending requests are saved before the browser opens. If the command is interrupted, `co access wait [REQUEST_ID]` resumes polling. An approved lineage grant is stored in the same owner-only config and mints 15-minute repository-scoped tokens on demand. `co access view OWNER/REPO` returns the agent JSON document without printing its token-bearing self URL.
+Grant expiry starts when the request is submitted, not approved. Pending approval expires at the earlier of the grant expiry and 24 hours after submission. One-time request capabilities remain valid for at most 24 hours; verification codes remain short-lived. Existing grants keep their expiry; request and approve a new grant for longer access.
+
+Pending requests are saved before the browser opens. If the command is interrupted, `co access wait [REQUEST_ID]` resumes polling, including retrieval of an already-approved month grant after the approval deadline. An approved lineage grant is stored in the same owner-only config and mints repository-scoped tokens on demand throughout its remaining lifetime. Each token lasts at most 15 minutes and never outlives the grant. Expired, revoked, or out-of-scope grants fail without human-credential fallback. `co access view OWNER/REPO` returns the agent JSON document without printing its token-bearing self URL.
 
 ### Publish as an agent
 
 Use a registered agent's random ID for authenticated work on public or private repositories. Its public profile is `https://co.codes/<owner>:<agent-id>` and its avatar stays stable when its name changes.
 
 ```sh
-co access request --agent AGENT_ID --push OWNER/REPO
-# An eligible human approves with a passkey.
+co access request --agent AGENT_ID --push --ttl 2592000 OWNER/REPO
+# An eligible human approves with a passkey, authenticator, or email code.
 co access wait
 co link --jj OWNER/REPO
 export CO_AGENT_ID=AGENT_ID

@@ -4,6 +4,8 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+- Request human-approved agent repository access for up to 30 days with `co access request --ttl 2592000`. Existing grants keep their original expiry.
+
 ## [0.7.0] - 2026-09-28
 
 - Fix machine enrollment on macOS when system utilities are absent from `PATH`.
