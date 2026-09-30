@@ -115,8 +115,9 @@ def generate(version, directory, output, fixture_origin=None, fixture_version=No
     winget = output / "winget"
     winget.mkdir(exist_ok=True)
     common = f"PackageIdentifier: CoCodes.Co\nPackageVersion: {package_version}\n"
-    (winget / "CoCodes.Co.yaml").write_text(common + "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n", encoding="utf-8")
-    (winget / "CoCodes.Co.locale.en-US.yaml").write_text(common + """PackageLocale: en-US
+    schema = "# yaml-language-server: $schema=https://aka.ms/winget-manifest.{}.1.12.0.schema.json\n\n"
+    (winget / "CoCodes.Co.yaml").write_text(schema.format("version") + common + "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n", encoding="utf-8")
+    (winget / "CoCodes.Co.locale.en-US.yaml").write_text(schema.format("defaultLocale") + common + """PackageLocale: en-US
 Publisher: co.codes
 PublisherUrl: https://co.codes
 PackageName: co
@@ -131,12 +132,11 @@ Tags:
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0
 """, encoding="utf-8")
-    (winget / "CoCodes.Co.installer.yaml").write_text(common + f"""InstallerType: zip
+    (winget / "CoCodes.Co.installer.yaml").write_text(schema.format("installer") + common + f"""InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
 - RelativeFilePath: co.exe
   PortableCommandAlias: co
-Scope: user
 MinimumOSVersion: 10.0.17763.0
 UpgradeBehavior: install
 Commands:
