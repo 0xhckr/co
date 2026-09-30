@@ -50,7 +50,7 @@ function Checked($Command, $Arguments) {
     if ($LASTEXITCODE) { throw "$Command failed ($LASTEXITCODE)" }
 }
 function Assert-ScoopPackageVersion([string]$ExpectedVersion) {
-    $installed = Get-Content "$env:SCOOP\apps\co-codes-cli\current\manifest.json" -Raw | ConvertFrom-Json
+    $installed = Get-Content "$env:SCOOP\apps\co-codes-cli\current\scoop-manifest.json" -Raw | ConvertFrom-Json
     if ($installed.version -ne $ExpectedVersion) { throw "Scoop package version mismatch: expected $ExpectedVersion, got $($installed.version)" }
     Write-Output "Scoop installed package version: $($installed.version)"
 }
