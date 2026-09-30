@@ -83,7 +83,11 @@ try {
     if ((& co version).Trim() -ne "co $Version") { throw 'Scoop install version mismatch' }
     New-LinkProbe "$Root\scoop-link"
     Copy-Item "$Root\new\co-codes-cli.json" "$bucket\bucket\co-codes-cli.json" -Force
-    Checked git @('-C', $bucket, 'add', '.')
+    $next = Get-Content "$bucket\bucket\co-codes-cli.json" -Raw | ConvertFrom-Json
+    if ($next.version -ne $Version) { throw 'Scoop fixture source was not updated' }
+    Write-Output "Scoop fixture source package version: $($next.version)"
+    # Copy-Item preserves timestamps; re-read tracked bytes instead of stat cache.
+    Checked git @('-C', $bucket, 'add', '--renormalize', '.')
     Checked git @('-C', $bucket, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'Fixture upgrade')
     # App-only update can skip bucket sync during Scoop's recent-update interval.
     Checked scoop @('update')
