@@ -9,15 +9,11 @@ struct Fixture(PathBuf);
 
 impl Fixture {
     fn new(config: Value) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "co-month-access-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&path).unwrap();
+        let path = tempfile::Builder::new()
+            .prefix("co-month-access-")
+            .tempdir()
+            .unwrap()
+            .keep();
         std::fs::write(path.join("config.json"), config.to_string()).unwrap();
         Self(path)
     }
@@ -89,6 +85,9 @@ fn server(steps: Vec<Step>) -> (String, std::thread::JoinHandle<()>) {
                     Err(error) => panic!("{error}"),
                 }
             };
+            // Accepted sockets can inherit the listener's nonblocking mode.
+            // Keep the accept deadline and the separate bounded read timeout.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
