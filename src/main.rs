@@ -3,7 +3,9 @@ use reqwest::StatusCode;
 use reqwest::blocking::{Client, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::{self, OpenOptions};
+use std::fs;
+#[cfg(not(windows))]
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -11,6 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod machine;
+#[cfg(windows)]
+mod windows_config;
 mod workflow;
 
 const DEFAULT_API_URL: &str = "https://api.co.codes";
@@ -321,6 +325,9 @@ fn help() {
     );
     println!("      --reason <text>             explain the task to the approver");
     println!();
+    #[cfg(windows)]
+    println!("Configuration: %APPDATA%\\co\\config.json (or $XDG_CONFIG_HOME/co/config.json).");
+    #[cfg(not(windows))]
     println!("Configuration: ~/.config/co/config.json (or $XDG_CONFIG_HOME/co/config.json).");
     println!("Set CO_CONFIG_DIR to override only the CLI configuration directory.");
     println!("Environment: CO_API_URL overrides https://api.co.codes.");
@@ -1348,6 +1355,12 @@ fn credential_helper_executable() -> Result<PathBuf, String> {
     let Some(invoked) = std::env::args_os().next().map(PathBuf::from) else {
         return Ok(executable);
     };
+    #[cfg(windows)]
+    let invoked = if invoked.extension().is_none() {
+        invoked.with_extension("exe")
+    } else {
+        invoked
+    };
     let candidates = if invoked.components().count() > 1 {
         vec![invoked]
     } else {
@@ -1371,6 +1384,15 @@ fn credential_helper(executable: &Path) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or("the co executable path is not valid UTF-8")?;
+    // Git for Windows runs ! helpers with its POSIX shell, not cmd.exe.
+    // Forward slashes also work with drive-letter paths and Unicode.
+    #[cfg(windows)]
+    let executable = executable
+        .strip_prefix(r"\\?\")
+        .unwrap_or(executable)
+        .replace('\\', "/");
+    #[cfg(windows)]
+    let executable = executable.as_str();
     Ok(format!("!{} git-credential", shell_quote(executable)))
 }
 
@@ -1634,14 +1656,28 @@ fn config_path() -> Result<PathBuf, String> {
     if let Some(root) = std::env::var_os("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(root).join("co/config.json"));
     }
-    let home = std::env::var_os("HOME")
-        .ok_or("HOME is unset; set CO_CONFIG_DIR or XDG_CONFIG_HOME for co")?;
-    Ok(PathBuf::from(home).join(".config/co/config.json"))
+    #[cfg(windows)]
+    {
+        let root = std::env::var_os("APPDATA")
+            .filter(|root| !root.is_empty())
+            .ok_or("APPDATA is unset; set CO_CONFIG_DIR or XDG_CONFIG_HOME for co")?;
+        Ok(PathBuf::from(root).join("co/config.json"))
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var_os("HOME")
+            .ok_or("HOME is unset; set CO_CONFIG_DIR or XDG_CONFIG_HOME for co")?;
+        Ok(PathBuf::from(home).join(".config/co/config.json"))
+    }
 }
 
 fn load_config() -> Result<Config, String> {
     let path = config_path()?;
-    match fs::read(&path) {
+    #[cfg(windows)]
+    let bytes = windows_config::read(&path);
+    #[cfg(not(windows))]
+    let bytes = fs::read(&path);
+    match bytes {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map_err(|error| format!("invalid config {}: {error}", path.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
@@ -1664,6 +1700,10 @@ fn mutate_config(update: impl FnOnce(&mut Config)) -> Result<(), String> {
 fn with_config_lock<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let path = config_path()?;
     let parent = path.parent().ok_or("invalid config path")?;
+    #[cfg(windows)]
+    windows_config::ensure_directory(parent)
+        .map_err(|error| format!("unable to secure {}: {error}", parent.display()))?;
+    #[cfg(not(windows))]
     fs::create_dir_all(parent)
         .map_err(|error| format!("unable to create {}: {error}", parent.display()))?;
     #[cfg(unix)]
@@ -1673,16 +1713,22 @@ fn with_config_lock<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<
             .map_err(|error| format!("unable to secure {}: {error}", parent.display()))?;
     }
     let lock_path = path.with_extension("json.lock");
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let lock = options
-        .open(&lock_path)
+    #[cfg(windows)]
+    let lock = windows_config::open_lock(&lock_path)
         .map_err(|error| format!("unable to open {}: {error}", lock_path.display()))?;
+    #[cfg(not(windows))]
+    let lock = {
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options
+            .open(&lock_path)
+            .map_err(|error| format!("unable to open {}: {error}", lock_path.display()))?
+    };
     lock.lock_exclusive()
         .map_err(|error| format!("unable to lock {}: {error}", lock_path.display()))?;
     let result = operation();
@@ -1693,27 +1739,39 @@ fn with_config_lock<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<
 
 fn save_config_unlocked(config: &Config) -> Result<(), String> {
     let path = config_path()?;
-    let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let temporary = path.with_extension(format!("json.{}.{nonce}.tmp", std::process::id()));
     write_private(
         &temporary,
         &serde_json::to_vec_pretty(config).map_err(|error| error.to_string())?,
     )?;
-    fs::rename(&temporary, &path)
-        .map_err(|error| format!("unable to replace {}: {error}", path.display()))?;
+    if let Err(error) = fs::rename(&temporary, &path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("unable to replace {}: {error}", path.display()));
+    }
     Ok(())
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
+    #[cfg(windows)]
+    let mut file = windows_config::create_private(path)
         .map_err(|error| format!("unable to write {}: {error}", path.display()))?;
+    #[cfg(not(windows))]
+    let mut file = {
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options
+            .open(path)
+            .map_err(|error| format!("unable to write {}: {error}", path.display()))?
+    };
     file.write_all(bytes)
         .map_err(|error| format!("unable to write {}: {error}", path.display()))
 }

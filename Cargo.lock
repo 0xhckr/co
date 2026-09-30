@@ -89,6 +89,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "webbrowser",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

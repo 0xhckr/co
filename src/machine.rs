@@ -61,8 +61,24 @@ fn ram_mib() -> Result<u64, String> {
         }
         Ok(bytes.div_ceil(1024 * 1024))
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    Err("machine enrollment requires Linux or macOS".into())
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut memory = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: memory is an initialized writable buffer with the required size.
+        if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
+            return Err(format!(
+                "unable to detect RAM: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        Ok(memory.ullTotalPhys.div_ceil(1024 * 1024))
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    Err("machine enrollment requires Linux, macOS or Windows".into())
 }
 
 fn machine_resources() -> Result<serde_json::Value, String> {

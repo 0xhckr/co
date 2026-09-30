@@ -21,6 +21,7 @@ fn config_override_preserves_host_config_and_default_paths() {
         command
             .arg("logout")
             .env("HOME", &home)
+            .env("APPDATA", &home)
             .env_remove("CO_CONFIG_DIR")
             .env_remove("XDG_CONFIG_HOME");
         if let Some(path) = override_dir {
@@ -47,6 +48,9 @@ fn config_override_preserves_host_config_and_default_paths() {
     run(None, true);
     assert!(host_config.is_file());
     run(None, false);
+    #[cfg(not(windows))]
     assert!(home.join(".config/co/config.json").is_file());
+    #[cfg(windows)]
+    assert!(home.join("co/config.json").is_file());
     fs::remove_dir_all(root).unwrap();
 }

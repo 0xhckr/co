@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "review/windows-**"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +14,7 @@ jobs:
     name: Rust (${{ matrix.os }})
     strategy:
       matrix:
-        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-6vcpu-macos-15]
+        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-6vcpu-macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -21,8 +22,17 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - if: runner.os != 'Windows'
+        run: cargo test --locked
+      - if: runner.os == 'Windows'
+        run: ./scripts/test-windows.ps1
+      - if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-evidence
+          path: ${{ runner.temp }}/co-test-*/*.log
+          if-no-files-found: warn
 
   installer:
     strategy:
