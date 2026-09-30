@@ -59,6 +59,8 @@ try {
     # The fresh standard user cannot write the CI parent's temporary directory.
     $env:TEMP = $Root
     $env:TMP = $Root
+    # Scoop also reads XDG_CONFIG_HOME/USERPROFILE from the inherited environment.
+    $env:XDG_CONFIG_HOME = "$Root\user-config"
     $env:SCOOP = "$Root\scoop"
     Invoke-WebRequest https://get.scoop.sh -UseBasicParsing -OutFile "$Root\install-scoop.ps1"
     & "$Root\install-scoop.ps1" -ScoopDir $env:SCOOP
@@ -99,7 +101,12 @@ try {
     Checked scoop @('uninstall', 'co-codes-cli')
     if (Get-Command co -ErrorAction SilentlyContinue) { throw 'Scoop left co on PATH after uninstall' }
     exit 0
-} catch { Write-Error $_; exit 1 }
+} catch {
+    Write-Output $_.Exception.ToString()
+    Write-Output $_.ScriptStackTrace
+    Write-Error $_
+    exit 1
+}
 '@
     $scoopScript | Set-Content "$root\scoop.ps1"
     $credential = [pscredential]::new("$env:COMPUTERNAME\$user", $password)
