@@ -67,6 +67,9 @@ fn mock_create(args: &[&str], status: &str, response: Value) -> (Output, Value) 
                 Err(error) => panic!("{error}"),
             }
         };
+        // macOS can inherit the listener's nonblocking flag on an accepted socket.
+        // Keep bounded acceptance, then use blocking reads with their own timeout.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
