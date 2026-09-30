@@ -67,6 +67,8 @@ try {
     $env:PATH = "$env:SCOOP\shims;$env:PATH"
     $bucket = "$Root\bucket"
     New-Item -ItemType Directory "$bucket\bucket" | Out-Null
+    # Keep fixture bytes stable when the credential probe isolates Git config.
+    '* -text' | Set-Content "$bucket\.gitattributes" -Encoding ascii
     Copy-Item "$Root\old\co-codes-cli.json" "$bucket\bucket\co-codes-cli.json"
     Checked git @('init', '--quiet', $bucket)
     Checked git @('-C', $bucket, 'add', '.')
