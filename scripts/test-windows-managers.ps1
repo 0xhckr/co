@@ -56,6 +56,9 @@ function Assert-ScoopPackageVersion([string]$ExpectedVersion) {
 }
 try {
     . "$Root\probe.ps1"
+    # The fresh standard user cannot write the CI parent's temporary directory.
+    $env:TEMP = $Root
+    $env:TMP = $Root
     $env:SCOOP = "$Root\scoop"
     Invoke-WebRequest https://get.scoop.sh -UseBasicParsing -OutFile "$Root\install-scoop.ps1"
     & "$Root\install-scoop.ps1" -ScoopDir $env:SCOOP
