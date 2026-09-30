@@ -115,8 +115,8 @@ def generate(version, directory, output, fixture_origin=None, fixture_version=No
     winget = output / "winget"
     winget.mkdir(exist_ok=True)
     common = f"PackageIdentifier: CoCodes.Co\nPackageVersion: {package_version}\n"
-    schema = "# yaml-language-server: $schema=https://aka.ms/winget-manifest.{}.1.12.0.schema.json\n\n"
-    (winget / "CoCodes.Co.yaml").write_text(schema.format("version") + common + "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n", encoding="utf-8")
+    schema = "# yaml-language-server: $schema=https://aka.ms/winget-manifest.{}.1.10.0.schema.json\n\n"
+    (winget / "CoCodes.Co.yaml").write_text(schema.format("version") + common + "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.10.0\n", encoding="utf-8")
     (winget / "CoCodes.Co.locale.en-US.yaml").write_text(schema.format("defaultLocale") + common + """PackageLocale: en-US
 Publisher: co.codes
 PublisherUrl: https://co.codes
@@ -130,7 +130,7 @@ Tags:
 - git
 - cli
 ManifestType: defaultLocale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.10.0
 """, encoding="utf-8")
     (winget / "CoCodes.Co.installer.yaml").write_text(schema.format("installer") + common + f"""InstallerType: zip
 NestedInstallerType: portable
@@ -146,7 +146,7 @@ Installers:
   InstallerUrl: {url}
   InstallerSha256: {digest.upper()}
 ManifestType: installer
-ManifestVersion: 1.12.0
+ManifestVersion: 1.10.0
 """, encoding="utf-8")
     chocolatey = output / "chocolatey"
     tools = chocolatey / "tools"

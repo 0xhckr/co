@@ -164,7 +164,7 @@ Keep this manifest at the same path. For an upgrade, download the next release's
 
 ### WinGet local manifests
 
-Requires a WinGet version supporting ZIP-wrapped portable packages (the generated manifest schema is 1.12.0). Enable local manifests once from an elevated terminal with `winget settings --enable LocalManifestFiles`. Then use a normal user terminal:
+Requires a WinGet version supporting ZIP-wrapped portable packages and manifest schema 1.10.0, such as WinGet 1.11. Enable local manifests once from an elevated terminal with `winget settings --enable LocalManifestFiles`. Then use a normal user terminal:
 
 ```powershell
 $Manifests = Get-CoReleaseAsset 'co-winget.zip'
