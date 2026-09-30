@@ -31,7 +31,11 @@ fn config_rewrites_remain_owner_only_and_concurrent_writers_serialize() {
             $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
             if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne 'FullControl') { throw 'Credential ACL grants another identity' }
         }
-    "#]).env("CO_CONFIG_DIR", &config).output().unwrap();
+    "#])
+    // Windows PowerShell must resolve its own modules, not PowerShell 7's
+    // incompatible Security module inherited from the CI parent process.
+    .env_remove("PSModulePath")
+    .env("CO_CONFIG_DIR", &config).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
