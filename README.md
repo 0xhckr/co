@@ -12,7 +12,9 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/codotcodes/co/main/install.sh | sh
 ```
 
-See the [platform installation guide](docs/install.md) for Homebrew, Debian/Ubuntu, Fedora/RHEL, Arch Linux, Cargo, Nix, direct downloads, and upgrade/uninstall instructions. The installer supports Linux glibc/musl and macOS on x86_64 and ARM64, defaults to `~/.local/bin`, and verifies release checksums. Windows remains deferred.
+See the [platform installation guide](docs/install.md) for Homebrew, Debian/Ubuntu, Fedora/RHEL, Arch Linux, Cargo, Nix, direct downloads, and upgrade/uninstall instructions. The installer supports Linux glibc/musl and macOS on x86_64 and ARM64, defaults to `~/.local/bin`, and verifies release checksums.
+
+This source tree adds native Windows x64 build and packaging definitions for direct ZIP downloads, Scoop, WinGet and Chocolatey. Use a release that actually contains the Windows assets; v0.7.0 has none. Native Windows execution is pending verification, and public package catalogs are pending publication. The installation guide covers verified release downloads and local package installation without assuming catalog availability.
 
 ## Usage
 
@@ -90,7 +92,7 @@ Private repository authentication uses HTTP Basic with username `co` and the exi
 
 The helper is also available directly as `co git-credential get|store|erase`. It follows Git's credential protocol and returns credentials only for HTTPS requests to `git.co.codes` (with an optional default `:443` port).
 
-Configuration is stored in `~/.config/co/config.json`, or `$XDG_CONFIG_HOME/co/config.json` when `XDG_CONFIG_HOME` is set. In addition to the managed `session_token`, you can set command defaults:
+Configuration defaults to `~/.config/co/config.json` on Linux and macOS, and `%APPDATA%\co\config.json` on Windows. A set `XDG_CONFIG_HOME` selects its `co/config.json` on any platform. Windows config directories, files and locks use protected current-user-only ACLs; the CLI rejects config directories/files owned by another identity or represented by a reparse point. In addition to the managed `session_token`, you can set command defaults:
 
 ```json
 {
@@ -101,7 +103,7 @@ Configuration is stored in `~/.config/co/config.json`, or `$XDG_CONFIG_HOME/co/c
 
 Command-line options override these defaults. Set `CO_API_URL` to override the configured `api_url` or use a non-production API endpoint.
 
-Set `CO_CONFIG_DIR` to a nonempty directory path to store `config.json` and its lock file there instead. This takes precedence over `XDG_CONFIG_HOME` and `HOME` and isolates CLI sessions without changing the desktop or browser configuration inherited during login. An empty `CO_CONFIG_DIR` uses the default configuration location.
+Set `CO_CONFIG_DIR` to a nonempty directory path to store `config.json` and its lock file there instead. This takes precedence over `XDG_CONFIG_HOME` and the platform default and isolates CLI sessions without changing the desktop or browser configuration inherited during login. An empty `CO_CONFIG_DIR` uses the default configuration location. In PowerShell, set an isolated directory with `$env:CO_CONFIG_DIR = "$env:LOCALAPPDATA\co-test"`; remove the override with `Remove-Item Env:CO_CONFIG_DIR`.
 
 ## Build
 
@@ -115,7 +117,7 @@ The minimum supported Rust version is 1.85.
 
 ## Releases
 
-Releases follow semantic versioning. A `vX.Y.Z` tag must match the package version. GitHub Actions builds all supported targets, publishes checksums and build attestations, and creates the GitHub release. Crates.io publication is enabled when the repository variable `PUBLISH_CRATES_IO` is `true` and `CARGO_REGISTRY_TOKEN` is configured.
+Releases follow semantic versioning. A `vX.Y.Z` tag must match the package version. GitHub Actions builds the six Linux/macOS targets and Windows x64 (`x86_64-pc-windows-msvc`), publishes checksums and build attestations, and creates the GitHub release after automated checks. Windows manager metadata comes from the verified ZIP and records its exact source and binary hashes. Community catalog publication is a separate maintenance step; see the [release maintenance guide](docs/install.md#release-maintenance). Crates.io publication is enabled when the repository variable `PUBLISH_CRATES_IO` is `true` and `CARGO_REGISTRY_TOKEN` is configured.
 
 ## Security
 
