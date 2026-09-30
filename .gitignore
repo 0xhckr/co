@@ -2,3 +2,6 @@
 /result
 /.direnv
 *.tmp
+/dist
+/windows-metadata
+__pycache__/

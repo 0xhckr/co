@@ -111,14 +111,65 @@ jobs:
       - run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
       - run: sh scripts/test-packages.sh dist "$GITHUB_REF_NAME"
 
+  windows:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: ./scripts/test-windows.ps1
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Build checksum-bound Windows packages
+        run: |
+          python scripts/test-windows-packages.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/windows-packages.py archive $env:GITHUB_REF_NAME target/x86_64-pc-windows-msvc/release/co.exe $env:GITHUB_SHA dist
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/windows-packages.py manifests $env:GITHUB_REF_NAME dist windows-metadata
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          choco pack windows-metadata/chocolatey/co-codes-cli.nuspec --outputdirectory dist
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item windows-metadata/co-codes-cli.json,windows-metadata/co-winget.zip,windows-metadata/windows-packages.json dist
+          Get-ChildItem dist -File | Where-Object { $_.Extension -ne '.sha256' } | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content "$($_.FullName).sha256" -Encoding ascii
+          }
+      - name: Require native manager lifecycle checks before publication
+        run: ./scripts/test-windows-managers.ps1 -Version $env:GITHUB_REF_NAME
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: co-x86_64-pc-windows-msvc
+          path: dist/*
+          if-no-files-found: error
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-release-evidence
+          path: |
+            ${{ runner.temp }}/co-test-*/*.log
+            ${{ runner.temp }}/co-packages-*/*.log
+          if-no-files-found: warn
+
   github-release:
-    needs: [build, package-smoke]
+    needs: [build, package-smoke, windows]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
+          pattern: co-*
           merge-multiple: true
       - name: Generate versioned Homebrew formula
         run: |
@@ -132,7 +183,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   crates-io:
-    needs: [build, package-smoke]
+    needs: [build, package-smoke, windows]
     if: vars.PUBLISH_CRATES_IO == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:

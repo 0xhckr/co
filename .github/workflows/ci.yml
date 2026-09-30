@@ -12,9 +12,15 @@ permissions:
 jobs:
   rust:
     name: Rust (${{ matrix.os }})
+    timeout-minutes: 30
     strategy:
       matrix:
-        os: [blacksmith-4vcpu-ubuntu-2404, blacksmith-6vcpu-macos-15, windows-2025]
+        os:
+          [
+            blacksmith-4vcpu-ubuntu-2404,
+            blacksmith-6vcpu-macos-15,
+            windows-2025,
+          ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -91,3 +97,32 @@ jobs:
       - run: nix flake check
       - run: nix build
       - run: ./result/bin/co version
+
+  windows-packages:
+    needs: rust
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - name: Build and test the exact native Windows archive
+        run: |
+          $version = (Select-String '^version = "([^"]+)"' Cargo.toml).Matches[0].Groups[1].Value
+          python scripts/test-windows-packages.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/windows-packages.py archive $version target/x86_64-pc-windows-msvc/release/co.exe $env:GITHUB_SHA dist
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./scripts/test-windows-managers.ps1 -Version $version
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-package-evidence
+          path: |
+            dist/*
+            ${{ runner.temp }}/co-packages-*/*.log
+            ${{ runner.temp }}/co-packages-*/new/**
+            ${{ runner.temp }}/co-packages-*/feed/*.nupkg
+          if-no-files-found: warn
