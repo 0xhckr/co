@@ -1,10 +1,26 @@
+use std::ffi::OsString;
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[test]
+fn main() {
+    if std::env::var_os("CO_WORKFLOW_CHECKER_PROBE").is_some() {
+        let expected = [
+            OsString::from("run"),
+            std::env::var_os("EXPECTED_CHECKER").unwrap(),
+            OsString::from(".co/workflows/example.ts"),
+        ];
+        if std::env::args_os().skip(1).collect::<Vec<_>>() != expected {
+            eprintln!("incorrect workflow checker arguments");
+            std::process::exit(3);
+        }
+        println!("diagnostic: bad selector");
+        std::process::exit(1);
+    }
+    workflow_check_passes_one_file_as_an_argument_and_returns_failure_status();
+    println!("workflow checker argument, diagnostic and failure-status probe passed");
+}
+
 fn workflow_check_passes_one_file_as_an_argument_and_returns_failure_status() {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -20,17 +36,13 @@ fn workflow_check_passes_one_file_as_an_argument_and_returns_failure_status() {
     .unwrap();
     let bin = root.join("bin");
     fs::create_dir(&bin).unwrap();
-    #[cfg(unix)]
-    {
-        let bun = bin.join("bun");
-        fs::write(
-        &bun,
-        "#!/bin/sh\n[ \"$1\" = run ] && [ \"$2\" = \"$EXPECTED_CHECKER\" ] && [ \"$3\" = .co/workflows/example.ts ] && [ \"$#\" -eq 3 ] || exit 3\nprintf '%s\\n' 'diagnostic: bad selector'\nexit 1\n",
-    ).unwrap();
-        fs::set_permissions(&bun, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    #[cfg(windows)]
-    fs::write(bin.join("bun.cmd"), "@echo off\r\nif not \"%~1\"==\"run\" exit /b 3\r\nif not \"%~2\"==\"%EXPECTED_CHECKER%\" exit /b 3\r\nif not \"%~3\"==\".co/workflows/example.ts\" exit /b 3\r\nif not \"%~4\"==\"\" exit /b 3\r\necho diagnostic: bad selector\r\nexit /b 1\r\n").unwrap();
+    // Copy this native test executable so Command::new("bun") resolves bun.exe
+    // on Windows through the same boundary as the real Bun executable.
+    fs::copy(
+        std::env::current_exe().unwrap(),
+        bin.join(format!("bun{}", std::env::consts::EXE_SUFFIX)),
+    )
+    .unwrap();
     let checker = fs::canonicalize(package.join("check.ts")).unwrap();
     #[cfg(windows)]
     let checker = checker
@@ -43,11 +55,12 @@ fn workflow_check_passes_one_file_as_an_argument_and_returns_failure_status() {
         .args(["workflow", "check", ".co/workflows/example.ts"])
         .current_dir(&root)
         .env("PATH", &bin)
+        .env("CO_WORKFLOW_CHECKER_PROBE", "1")
         // macOS resolves /var to /private/var when the CLI calls current_dir().
         .env("EXPECTED_CHECKER", checker)
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("diagnostic: bad selector"),
         "status: {}; stderr: {}",

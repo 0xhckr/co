@@ -15,6 +15,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "co"
 path = "src/main.rs"
 
+[[test]]
+name = "workflow"
+path = "tests/workflow.rs"
+harness = false
+
 [dependencies]
 base64 = "0.22"
 fs2 = "0.4"
