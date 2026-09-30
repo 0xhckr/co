@@ -5,17 +5,19 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 struct TestConfig(PathBuf);
 
 impl TestConfig {
     fn new(signed_in: bool) -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        // Atomic creation keeps parallel tests distinct even when the clock repeats.
+        // TestConfig retains ownership and its strict cleanup assertion below.
+        let root = tempfile::Builder::new()
+            .prefix("co-create-")
+            .tempdir()
             .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("co-create-{}-{nonce}", std::process::id()));
+            .keep();
         fs::create_dir_all(root.join("co")).unwrap();
         let config = if signed_in {
             json!({"session_token": "test-session"})
