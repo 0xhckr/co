@@ -148,7 +148,8 @@ try {
     $wingetBinary = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\CoCodes.Co*" -Recurse -Filter co.exe | Select-Object -First 1 -ExpandProperty FullName
     Verify-Co $wingetBinary
     Test-LinkProbe "$root\winget-link"
-    Checked winget @('uninstall', '--id', 'CoCodes.Co', '--exact', '--scope', 'user', '--silent', '--disable-interactivity')
+    # Local portable installs are matched by manifest/product code, not catalog ID.
+    Checked winget @('uninstall', '--manifest', "$root\new\winget", '--scope', 'user', '--silent', '--disable-interactivity')
     Refresh-Path
     if (Get-Command co -ErrorAction SilentlyContinue) { throw 'WinGet left co on PATH after uninstall' }
 

@@ -175,7 +175,7 @@ winget install --manifest $ManifestDir --scope user --accept-package-agreements
 co version
 ```
 
-For an upgrade, extract the next release's verified `co-winget.zip` into the same directory, validate it and run `winget upgrade --manifest $ManifestDir --scope user --accept-package-agreements`. Uninstall with `winget uninstall --id CoCodes.Co --exact --scope user`. WinGet creates the portable command link; open a new terminal if its `PATH` update is not visible. `CoCodes.Co` is a proposed identifier in the generated local manifests, not a claim that the public WinGet source contains the package.
+For an upgrade, extract the next release's verified `co-winget.zip` into the same directory, validate it and run `winget upgrade --manifest $ManifestDir --scope user --accept-package-agreements`. Keep those extracted manifests and uninstall with `winget uninstall --manifest $ManifestDir --scope user`. This selects the local portable package without requiring a catalog entry. WinGet creates the portable command link; open a new terminal if its `PATH` update is not visible. `CoCodes.Co` is a proposed identifier in the generated local manifests, not a claim that the public WinGet source contains the package.
 
 ### Chocolatey local package
 
