@@ -4,7 +4,12 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
-- Request human-approved agent repository access for up to 30 days with `co access request --ttl 2592000`. Existing grants keep their original expiry.
+## [0.8.0] - 2026-09-30
+
+- Add Windows x64 downloads and local installation with Scoop, WinGet and Chocolatey.
+- Default to `%APPDATA%\co` for Windows login credentials, with access limited to the current user.
+- Preserve drive-letter and network-share paths when configuring Git authentication on Windows.
+- Support requests for human-approved agent repository access for up to 30 days with `co access request --ttl 2592000` where supported by the service. Existing grants keep their original expiry.
 
 ## [0.7.0] - 2026-09-28
 
@@ -54,7 +59,8 @@ All notable changes are documented here. This project follows semantic versionin
 - Validate repository access in `clone` while smart HTTP remains unavailable.
 - Add Linux and macOS release packaging, Nix support, and the global installer.
 
-[Unreleased]: https://github.com/codotcodes/co/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/codotcodes/co/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/codotcodes/co/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/codotcodes/co/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/codotcodes/co/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/codotcodes/co/compare/v0.4.0...v0.5.0

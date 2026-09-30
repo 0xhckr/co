@@ -12,7 +12,7 @@
         pkgs = import nixpkgs { inherit system; };
         package = pkgs.rustPlatform.buildRustPackage {
           pname = "co-codes-cli";
-          version = "0.7.0";
+          version = "0.8.0";
           src = self;
           cargoLock.lockFile = ./Cargo.lock;
           nativeCheckInputs = [ pkgs.git ];

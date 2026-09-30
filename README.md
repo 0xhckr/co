@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/codotcodes/co/main/install.sh | sh
 
 See the [platform installation guide](docs/install.md) for Homebrew, Debian/Ubuntu, Fedora/RHEL, Arch Linux, Cargo, Nix, direct downloads, and upgrade/uninstall instructions. The installer supports Linux glibc/musl and macOS on x86_64 and ARM64, defaults to `~/.local/bin`, and verifies release checksums.
 
-This source tree adds native Windows x64 build and packaging definitions for direct ZIP downloads, Scoop, WinGet and Chocolatey. Use a release that actually contains the Windows assets; v0.7.0 has none. Native Windows execution is pending verification, and public package catalogs are pending publication. The installation guide covers verified release downloads and local package installation without assuming catalog availability.
+Windows x64 releases provide direct ZIP downloads and local installation with Scoop, WinGet and Chocolatey. Use v0.8.0 or newer for the Windows assets; v0.7.0 has none. Public package catalogs are pending publication. The installation guide covers checksum-verified release downloads and local package installation.
 
 ## Usage
 

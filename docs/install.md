@@ -1,6 +1,6 @@
 # Install the co CLI
 
-`co` runs on Linux (x86_64 and ARM64) and macOS (Intel and Apple Silicon). This source tree adds Windows x64 (`x86_64-pc-windows-msvc`) build and package definitions. Native Windows execution is pending verification. Choose one installation method so another `co` earlier in `PATH` does not hide upgrades.
+`co` runs on Linux (x86_64 and ARM64), macOS (Intel and Apple Silicon) and Windows x64. Choose one installation method so another `co` earlier in `PATH` does not hide upgrades.
 
 ## Linux and macOS installer
 
@@ -93,9 +93,9 @@ Upgrade by downloading and verifying the new package, then running `pacman -U` a
 
 ## Windows x64
 
-Windows installation requires a published release containing `co-x86_64-pc-windows-msvc.zip` and the selected package metadata. v0.7.0 contains no Windows assets. Public Scoop bucket, WinGet catalog and Chocolatey community entries are pending publication; the proposed identifiers below are not reserved. Release downloads and local manager installation do not require those entries.
+Windows installation is available from v0.8.0 through `co-x86_64-pc-windows-msvc.zip` and the selected package metadata. v0.7.0 contains no Windows assets. Public Scoop bucket, WinGet catalog and Chocolatey community entries are pending publication; the proposed identifiers below are not reserved. Release downloads and local manager installation do not require those entries.
 
-The commands in this section are source-defined instructions awaiting native Windows verification. Use PowerShell and [Git for Windows](https://gitforwindows.org/) for Git commands. The release binary uses the static MSVC runtime. `install.sh` is the Linux/macOS installer.
+Use PowerShell and [Git for Windows](https://gitforwindows.org/) for Git commands. The release binary uses the static MSVC runtime. `install.sh` is the Linux/macOS installer.
 
 ### Select and verify release downloads
 
