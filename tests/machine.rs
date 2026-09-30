@@ -5,18 +5,18 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 struct Fixture(PathBuf);
 
 impl Fixture {
     fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        // Parallel fixtures need atomic uniqueness even when the clock repeats.
+        let root = tempfile::Builder::new()
+            .prefix("co-machine-")
+            .tempdir()
             .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("co-machine-{}-{nonce}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+            .keep();
         fs::write(
             root.join("config.json"),
             json!({"session_token":"human-session"}).to_string(),
