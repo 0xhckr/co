@@ -49,6 +49,11 @@ function Checked($Command, $Arguments) {
     & $Command @Arguments
     if ($LASTEXITCODE) { throw "$Command failed ($LASTEXITCODE)" }
 }
+function Assert-ScoopPackageVersion([string]$ExpectedVersion) {
+    $installed = Get-Content "$env:SCOOP\apps\co-codes-cli\current\manifest.json" -Raw | ConvertFrom-Json
+    if ($installed.version -ne $ExpectedVersion) { throw "Scoop package version mismatch: expected $ExpectedVersion, got $($installed.version)" }
+    Write-Output "Scoop installed package version: $($installed.version)"
+}
 try {
     . "$Root\probe.ps1"
     $env:SCOOP = "$Root\scoop"
@@ -61,15 +66,28 @@ try {
     Checked git @('init', '--quiet', $bucket)
     Checked git @('-C', $bucket, 'add', '.')
     Checked git @('-C', $bucket, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'Fixture baseline')
-    Checked scoop @('bucket', 'add', 'co-windows-test', $bucket)
+    # Scoop validates a Git URI before cloning; a backslash directory is rejected.
+    $bucketUri = ([uri]$bucket).AbsoluteUri
+    Checked scoop @('bucket', 'add', 'co-windows-test', $bucketUri)
     Checked scoop @('install', 'co-windows-test/co-codes-cli')
+    Assert-ScoopPackageVersion '0.0.1'
+    $oldInstall = "$env:SCOOP\apps\co-codes-cli\0.0.1"
+    if (!(Test-Path "$oldInstall\co.exe")) { throw 'Scoop fixture baseline install is missing' }
     if ((& co version).Trim() -ne "co $Version") { throw 'Scoop install version mismatch' }
     New-LinkProbe "$Root\scoop-link"
     Copy-Item "$Root\new\co-codes-cli.json" "$bucket\bucket\co-codes-cli.json" -Force
     Checked git @('-C', $bucket, 'add', '.')
     Checked git @('-C', $bucket, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'Fixture upgrade')
+    # App-only update can skip bucket sync during Scoop's recent-update interval.
+    Checked scoop @('update')
+    $clonedManifest = Get-Content "$env:SCOOP\buckets\co-windows-test\bucket\co-codes-cli.json" -Raw | ConvertFrom-Json
+    if ($clonedManifest.version -ne $Version) { throw 'Scoop fixture bucket did not refresh' }
     Checked scoop @('update', 'co-codes-cli')
+    # Both packages contain the same binary, so observe Scoop's package metadata.
+    Assert-ScoopPackageVersion $Version
     Checked scoop @('cleanup', 'co-codes-cli')
+    if (Test-Path $oldInstall) { throw 'Scoop cleanup left the fixture baseline installed' }
+    Write-Output 'Scoop fixture baseline removed; checking upgraded binary and Git helper.'
     $metadata = Get-Content "$Root\new\windows-packages.json" -Raw | ConvertFrom-Json
     if ((& co version).Trim() -ne "co $Version") { throw 'Scoop upgrade version mismatch' }
     if ((Get-FileHash "$env:SCOOP\apps\co-codes-cli\current\co.exe").Hash.ToLowerInvariant() -ne $metadata.binarySha256) { throw 'Scoop binary source mismatch' }
