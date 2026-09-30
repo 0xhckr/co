@@ -1387,13 +1387,22 @@ fn credential_helper(executable: &Path) -> Result<String, String> {
     // Git for Windows runs ! helpers with its POSIX shell, not cmd.exe.
     // Forward slashes also work with drive-letter paths and Unicode.
     #[cfg(windows)]
-    let executable = executable
-        .strip_prefix(r"\\?\")
-        .unwrap_or(executable)
-        .replace('\\', "/");
+    let executable = windows_git_shell_path(executable);
     #[cfg(windows)]
     let executable = executable.as_str();
     Ok(format!("!{} git-credential", shell_quote(executable)))
+}
+
+#[cfg(any(windows, test))]
+fn windows_git_shell_path(executable: &str) -> String {
+    if let Some(unc) = executable.strip_prefix(r"\\?\UNC\") {
+        format!("//{}", unc.replace('\\', "/"))
+    } else {
+        executable
+            .strip_prefix(r"\\?\")
+            .unwrap_or(executable)
+            .replace('\\', "/")
+    }
 }
 
 fn shell_quote(value: &str) -> String {
@@ -1928,6 +1937,17 @@ mod tests {
             credential_helper(Path::new("/tmp/co cli's/co")).unwrap(),
             "!'/tmp/co cli'\\''s/co' git-credential"
         );
+    }
+
+    #[test]
+    fn preserves_windows_drive_and_unc_helper_paths() {
+        for (path, expected) in [
+            (r"\\?\C:\co cli\co.exe", "C:/co cli/co.exe"),
+            (r"\\?\UNC\server\share\co.exe", "//server/share/co.exe"),
+            (r"\\server\share\co.exe", "//server/share/co.exe"),
+        ] {
+            assert_eq!(windows_git_shell_path(path), expected);
+        }
     }
 
     #[test]
