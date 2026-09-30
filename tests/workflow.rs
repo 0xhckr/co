@@ -5,13 +5,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     if std::env::var_os("CO_WORKFLOW_CHECKER_PROBE").is_some() {
-        let expected = [
-            OsString::from("run"),
-            std::env::var_os("EXPECTED_CHECKER").unwrap(),
-            OsString::from(".co/workflows/example.ts"),
-        ];
-        if std::env::args_os().skip(1).collect::<Vec<_>>() != expected {
-            eprintln!("incorrect workflow checker arguments");
+        let arguments = std::env::args_os().skip(1).collect::<Vec<OsString>>();
+        let expected_checker =
+            fs::canonicalize(std::env::var_os("EXPECTED_CHECKER").unwrap()).unwrap();
+        // Windows accepts both path separators and verbatim drive prefixes.
+        // Compare the checker file identity, while retaining exact argument count
+        // and spelling for Bun's command and the requested workflow file.
+        let valid = matches!(arguments.as_slice(), [command, checker, file]
+            if command == "run" && file == ".co/workflows/example.ts"
+                && fs::canonicalize(checker).is_ok_and(|path| path == expected_checker));
+        if !valid {
+            eprintln!("incorrect workflow checker arguments: {arguments:?}");
             std::process::exit(3);
         }
         println!("diagnostic: bad selector");
@@ -44,13 +48,6 @@ fn workflow_check_passes_one_file_as_an_argument_and_returns_failure_status() {
     )
     .unwrap();
     let checker = fs::canonicalize(package.join("check.ts")).unwrap();
-    #[cfg(windows)]
-    let checker = checker
-        .to_str()
-        .unwrap()
-        .strip_prefix(r"\\?\")
-        .unwrap_or(checker.to_str().unwrap())
-        .to_owned();
     let output = Command::new(env!("CARGO_BIN_EXE_co"))
         .args(["workflow", "check", ".co/workflows/example.ts"])
         .current_dir(&root)
