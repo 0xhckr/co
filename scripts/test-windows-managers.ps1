@@ -100,7 +100,13 @@ try {
 '@
     $scoopScript | Set-Content "$root\scoop.ps1"
     $credential = [pscredential]::new("$env:COMPUTERNAME\$user", $password)
-    $process = Start-Process powershell.exe -Credential $credential -LoadUserProfile -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$root\scoop.ps1", '-Root', $root, '-Version', $version -RedirectStandardOutput "$root\scoop.stdout.log" -RedirectStandardError "$root\scoop.stderr.log" -Wait -PassThru
+    # Windows PowerShell must reconstruct its native module roots rather than
+    # inherit incompatible PowerShell 7 modules from the CI parent process.
+    $originalModulePath = $env:PSModulePath
+    try {
+        Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+        $process = Start-Process powershell.exe -Credential $credential -LoadUserProfile -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$root\scoop.ps1", '-Root', $root, '-Version', $version -RedirectStandardOutput "$root\scoop.stdout.log" -RedirectStandardError "$root\scoop.stderr.log" -Wait -PassThru
+    } finally { $env:PSModulePath = $originalModulePath }
     Get-Content "$root\scoop.stdout.log"
     Get-Content "$root\scoop.stderr.log"
     if ($process.ExitCode) { throw 'Native Scoop lifecycle failed' }
