@@ -19,6 +19,7 @@ mod workflow;
 
 const DEFAULT_API_URL: &str = "https://api.co.codes";
 const GIT_HOST: &str = "git.co.codes";
+const STAGING_GIT_HOST: &str = "git.codevved.com";
 const DEVICE_CLIENT_ID: &str = "co-cli";
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_UPSTREAM_NAME: &str = "origin";
@@ -264,11 +265,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "clone" => {
             let config = load_config()?;
-            clone_repo(parse_repo_command(&args[1..], true, &config)?)
+            clone_repo(parse_repo_command(&args[1..], true, &config)?, &config)
         }
         "link" => {
             let config = load_config()?;
-            link_repo(parse_repo_command(&args[1..], false, &config)?)
+            link_repo(parse_repo_command(&args[1..], false, &config)?, &config)
         }
         "repo" => Err(format!(
             "usage: co repo view <owner/repo>\n{REPO_CREATE_USAGE}"
@@ -550,7 +551,12 @@ fn create_repo(command: CreateRepoCommand) -> Result<(), String> {
     } else {
         println!("Created {}/{} ({})", repo.owner, repo.name, repo.visibility);
         println!("  web  https://co.codes/{}/{}", repo.owner, repo.name);
-        println!("  git  https://{GIT_HOST}/{}/{}.git", repo.owner, repo.name);
+        println!(
+            "  git  https://{}/{}/{}.git",
+            git_host(&api_url(&config)),
+            repo.owner,
+            repo.name
+        );
     }
     if !repo.created {
         eprintln!(
@@ -1156,14 +1162,27 @@ fn git_credential(operation: &str) -> Result<(), String> {
             // Explicit agent mode must never fall through to a human credential
             // or another configured helper, including on a malformed request.
             let token = selected.and_then(|id| {
-                if !credential.in_scope() {
-                    return Err("agent credential request is outside git.co.codes".into());
+                let requested_host = credential
+                    .git_host()
+                    .ok_or("agent credential request is outside supported HTTPS Git hosts")?;
+                // Reject foreign/cross-environment requests before loading a
+                // credential when the caller has explicitly selected the API.
+                if let Ok(api) = std::env::var("CO_API_URL") {
+                    let host = git_host(&api);
+                    if requested_host != host {
+                        return Err(format!("agent credential request is outside {host}"));
+                    }
+                }
+                let config = load_config()?;
+                let host = git_host(&api_url(&config));
+                if requested_host != host {
+                    return Err(format!("agent credential request is outside {host}"));
                 }
                 let path = credential.path.ok_or(
                     "agent credentials require credential.useHttpPath=true; run co link again",
                 )?;
                 let (owner, repo) = repo_spec(path.strip_suffix(".git").unwrap_or(path))?;
-                mint_agent_token(&load_config()?, owner, repo, id.as_deref(), "push")
+                mint_agent_token(&config, owner, repo, id.as_deref(), "push")
             });
             match token {
                 Ok(token) => print!("username=co\npassword={token}\n\n"),
@@ -1175,8 +1194,10 @@ fn git_credential(operation: &str) -> Result<(), String> {
             std::io::stdout()
                 .flush()
                 .map_err(|error| format!("unable to write Git credential response: {error}"))?;
-        } else if credential.in_scope() {
-            if let Some(token) = load_config()?.session_token {
+        } else if let Some(requested_host) = credential.git_host() {
+            let config = load_config()?;
+            let host = git_host(&api_url(&config));
+            if let Some(token) = config.session_token.filter(|_| requested_host == host) {
                 print!("username=co\npassword={token}\n\n");
                 std::io::stdout()
                     .flush()
@@ -1195,8 +1216,15 @@ struct GitCredential<'a> {
 }
 
 impl GitCredential<'_> {
-    fn in_scope(&self) -> bool {
-        self.protocol == Some("https") && matches!(self.host, Some(GIT_HOST | "git.co.codes:443"))
+    fn git_host(&self) -> Option<&'static str> {
+        if self.protocol != Some("https") {
+            return None;
+        }
+        match self.host {
+            Some(GIT_HOST | "git.co.codes:443") => Some(GIT_HOST),
+            Some(STAGING_GIT_HOST | "git.codevved.com:443") => Some(STAGING_GIT_HOST),
+            _ => None,
+        }
     }
 }
 
@@ -1298,13 +1326,15 @@ fn validate_upstream_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn clone_repo(command: RepoCommand) -> Result<(), String> {
+fn clone_repo(command: RepoCommand, config: &Config) -> Result<(), String> {
     let (_, name) = repo_spec(&command.spec)?;
     let executable = credential_helper_executable()?;
     let helper = credential_helper(&executable)?;
-    let url = git_url(&command.spec);
+    let host = git_host(&api_url(config));
+    let url = git_url(&command.spec, host);
     let clone_args = clone_command_args(
         &url,
+        host,
         command.directory.as_deref(),
         &command.upstream_name,
         &helper,
@@ -1315,16 +1345,17 @@ fn clone_repo(command: RepoCommand) -> Result<(), String> {
         .directory
         .map(PathBuf::from)
         .unwrap_or_else(|| name.into());
-    configure_repo_helper(&destination, &helper)?;
+    configure_repo_helper(&destination, &helper, host)?;
     if command.jj {
         initialize_jj(&destination)?;
     }
     Ok(())
 }
 
-fn link_repo(command: RepoCommand) -> Result<(), String> {
+fn link_repo(command: RepoCommand, config: &Config) -> Result<(), String> {
     let executable = credential_helper_executable()?;
     let helper = credential_helper(&executable)?;
+    let host = git_host(&api_url(config));
     let root = git_repo_root()?;
     run_git(
         &[
@@ -1333,19 +1364,28 @@ fn link_repo(command: RepoCommand) -> Result<(), String> {
             "remote".into(),
             "add".into(),
             command.upstream_name,
-            git_url(&command.spec),
+            git_url(&command.spec, host),
         ],
         "link repository",
     )?;
-    configure_repo_helper(&root, &helper)?;
+    configure_repo_helper(&root, &helper, host)?;
     if command.jj {
         initialize_jj(&root)?;
     }
     Ok(())
 }
 
-fn git_url(spec: &str) -> String {
-    format!("https://{GIT_HOST}/{spec}.git")
+fn git_host(api: &str) -> &'static str {
+    // D78 owns this fixed API/Git pair. Other API overrides retain the
+    // production Git target; they do not authorize arbitrary Git hosts.
+    match api.trim_end_matches('/') {
+        "https://api.codevved.com" | "https://api.codevved.com:443" => STAGING_GIT_HOST,
+        _ => GIT_HOST,
+    }
+}
+
+fn git_url(spec: &str, host: &str) -> String {
+    format!("https://{host}/{spec}.git")
 }
 
 fn credential_helper_executable() -> Result<PathBuf, String> {
@@ -1411,6 +1451,7 @@ fn shell_quote(value: &str) -> String {
 
 fn clone_command_args(
     url: &str,
+    host: &str,
     directory: Option<&str>,
     upstream_name: &str,
     helper: &str,
@@ -1419,9 +1460,9 @@ fn clone_command_args(
         "-c".into(),
         "credential.helper=".into(),
         "-c".into(),
-        format!("credential.https://{GIT_HOST}.helper={helper}"),
+        format!("credential.https://{host}.helper={helper}"),
         "-c".into(),
-        format!("credential.https://{GIT_HOST}.useHttpPath=true"),
+        format!("credential.https://{host}.useHttpPath=true"),
         "clone".into(),
         "--origin".into(),
         upstream_name.into(),
@@ -1494,11 +1535,11 @@ fn path_string(path: &Path, label: &str) -> Result<String, String> {
         .ok_or_else(|| format!("the {label} is not valid UTF-8"))
 }
 
-fn configure_repo_helper(directory: &Path, helper: &str) -> Result<(), String> {
+fn configure_repo_helper(directory: &Path, helper: &str, host: &str) -> Result<(), String> {
     let directory = directory
         .to_str()
         .ok_or("the clone directory is not valid UTF-8")?;
-    let key = format!("credential.https://{GIT_HOST}.helper");
+    let key = format!("credential.https://{host}.helper");
     run_git(
         &[
             "-C".into(),
@@ -1529,7 +1570,7 @@ fn configure_repo_helper(directory: &Path, helper: &str) -> Result<(), String> {
             directory.into(),
             "config".into(),
             "--local".into(),
-            format!("credential.https://{GIT_HOST}.useHttpPath"),
+            format!("credential.https://{host}.useHttpPath"),
             "true".into(),
         ],
         "configure repository-scoped credentials",
@@ -1813,11 +1854,26 @@ mod tests {
                 path: Some("hackr/www.git")
             }
         );
-        assert!(credential.in_scope());
-        assert!(parse_credential("protocol=https\nhost=git.co.codes\n\n").in_scope());
-        assert!(!parse_credential("protocol=http\nhost=git.co.codes\n\n").in_scope());
-        assert!(!parse_credential("protocol=https\nhost=git.co.codes:444\n\n").in_scope());
-        assert!(!parse_credential("protocol=https\nhost=evil.example\n\n").in_scope());
+        assert_eq!(credential.git_host(), Some(GIT_HOST));
+        assert_eq!(
+            parse_credential("protocol=https\nhost=git.co.codes\n\n").git_host(),
+            Some(GIT_HOST)
+        );
+        assert!(
+            parse_credential("protocol=http\nhost=git.co.codes\n\n")
+                .git_host()
+                .is_none()
+        );
+        assert!(
+            parse_credential("protocol=https\nhost=git.co.codes:444\n\n")
+                .git_host()
+                .is_none()
+        );
+        assert!(
+            parse_credential("protocol=https\nhost=evil.example\n\n")
+                .git_host()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1845,6 +1901,7 @@ mod tests {
         assert_eq!(
             clone_command_args(
                 "https://git.co.codes/hackr/co.git",
+                GIT_HOST,
                 Some("checkout"),
                 "upstream",
                 helper
@@ -1957,6 +2014,31 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(api_url(&config), "https://example.test");
+    }
+
+    #[test]
+    fn staging_git_target_requires_the_exact_supported_api() {
+        for api in [
+            "https://api.codevved.com",
+            "https://api.codevved.com/",
+            "https://api.codevved.com:443",
+        ] {
+            assert_eq!(git_host(api), STAGING_GIT_HOST);
+        }
+        for api in [
+            DEFAULT_API_URL,
+            "http://api.codevved.com",
+            "https://api.codevved.com:444",
+            "https://api.codevved.com.evil.example",
+            "https://api.codevved.com@evil.example",
+            "https://evil.example@api.codevved.com",
+            "https://api.codevved.com/other",
+            "https://api.codevved.com?other",
+            "https://api.codevved.com#other",
+            "http://127.0.0.1:8787",
+        ] {
+            assert_eq!(git_host(api), GIT_HOST);
+        }
     }
 
     #[test]

@@ -86,11 +86,23 @@ co agent attest OWNER/REPO FULL_COMMIT_OID [ANOTHER_FULL_COMMIT_OID]
 
 Attest only full 40- or 64-character commit IDs the agent worked on, up to 100 per invocation. Pushing imported ancestors does not make them AI-assisted. Attestations require a live push grant even for public repositories; they record authenticated participation claims, not independently proven authorship or portable Git signatures. Retries are idempotent. If a batch partially succeeds, replay it; a 409 `contribution_index_pending` means to retry after indexing catches up. Attestation limits are 1000 new receipts per repository per hour and 50 agents per commit.
 
-`co clone` uses the canonical `https://git.co.codes/OWNER/REPO.git` remote. `co link` adds that remote to the Git repository containing the current directory, including a bare repository. Both commands name the remote `origin` by default; use `-u NAME` or `--set-upstream-name NAME` to override it. Add `--jj` to run `jj git init --colocate` at the repository root after Git setup succeeds. Use `--no-jj` to override a configured jj default; jj setup requires a working tree.
+`co clone` uses the canonical `https://git.co.codes/OWNER/REPO.git` remote. When the effective API is `https://api.codevved.com` (optionally with the default `:443` port), it uses `https://git.codevved.com/OWNER/REPO.git` instead. Other API overrides retain the production Git target. `co link` adds the selected remote to the Git repository containing the current directory, including a bare repository. Both commands name the remote `origin` by default; use `-u NAME` or `--set-upstream-name NAME` to override it. Add `--jj` to run `jj git init --colocate` at the repository root after Git setup succeeds. Use `--no-jj` to override a configured jj default; jj setup requires a working tree.
 
 Private repository authentication uses HTTP Basic with username `co` and the existing human session as its password. Clone and link configure a URL-scoped local helper so ordinary `git fetch` and `git push` work. Git configuration stores the helper command, never the session token. Public repositories remain anonymously cloneable without a session.
 
-The helper is also available directly as `co git-credential get|store|erase`. It follows Git's credential protocol and returns credentials only for HTTPS requests to `git.co.codes` (with an optional default `:443` port).
+The helper is also available directly as `co git-credential get|store|erase`. It follows Git's credential protocol and returns credentials only for HTTPS requests to the Git host selected by the effective API, with an optional default `:443` port. In agent mode, the requested repository path must match the selected agent's live push grant. Foreign hosts, cross-environment hosts and out-of-scope paths fail with `quit=true` and a nonzero exit status.
+
+Keep the same API, isolated profile and selected agent for staging Git operations:
+
+```sh
+export CO_API_URL=https://api.codevved.com
+export CO_CONFIG_DIR="$HOME/.config/co.codes/staging/co"
+export CO_AGENT_ID=STAGING_AGENT_ID
+co link --no-jj -u staging OWNER/REPO
+git push staging HEAD:refs/heads/main
+```
+
+Use an existing human-approved staging pull/push grant for that exact repository. Every credential lookup refreshes a token under the grant's original expiry; it never extends the grant. The helper command stored by clone/link contains only the executable path, so retain these environment settings when running Git. A production profile or grant does not provide staging authorization.
 
 Configuration defaults to `~/.config/co/config.json` on Linux and macOS, and `%APPDATA%\co\config.json` on Windows. A set `XDG_CONFIG_HOME` selects its `co/config.json` on any platform. Windows config directories, files and locks use protected current-user-only ACLs; the CLI rejects config directories/files owned by another identity or represented by a reparse point. In addition to the managed `session_token`, you can set command defaults:
 

@@ -4,6 +4,8 @@ All notable changes are documented here. This project follows semantic versionin
 
 ## [Unreleased]
 
+- Match clone, link and Git credentials to the selected staging environment while preserving repository-scoped agent access.
+
 ## [0.8.0] - 2026-09-30
 
 - Add Windows x64 downloads and local installation with Scoop, WinGet and Chocolatey.
